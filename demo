@@ -1,0 +1,106 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Thu Oct 29 15:09:44 2020
+#一个简单的图像处理的卷积神经网络模型
+@author: Administrator
+"""
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+
+import torch.optim as optim
+import torchvision
+import torchvision.transforms as transforms
+# 使用torchvision加载并且归一化CIFAR10的训练和测试数据集
+# .Compose函数是一个将各种对数据集的操作和处理，整合到一起的函数。
+# transforms.ToTensor()表示转换成张量的格式
+# Normalize是归一化操作，第一个参数是三个通道的mean，第二个是std标准差，
+
+transform = transforms.Compose(
+    [transforms.ToTensor(),
+     transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
+# 加载训练集
+trainset = torchvision.datasets.CIFAR10(root='./data', train=True,
+                                        download=True, transform=transform)
+trainloader = torch.utils.data.DataLoader(trainset, batch_size=4,
+                                          shuffle=True, num_workers=0)
+# 加载测试集
+testset = torchvision.datasets.CIFAR10(root='./data', train=False,
+                                       download=True, transform=transform)
+testloader = torch.utils.data.DataLoader(testset, batch_size=4,
+                                         shuffle=False, num_workers=0)
+# 出现错误BrokenPipeError: [Errno 32] Broken pipe  ：将num_workers设置为0
+# dataloader一次性创建num_worker个worker，（也可以说dataloader一次性创建num_worker个工作进程，
+# worker也是普通的工作进程）
+# 然后，dataloader从RAM中找本轮迭代要用的batch，如果找到了，就使用。如果没找到，就要num_worker个worker继续加载batch到内存，直到dataloader在RAM中找到目标batch。一般情况下都是能找到的，因为batch_sampler指定batch时当然优先指定本轮要用的batch。
+# num_worker设置得大，好处是寻batch速度快，因为下一轮迭代的batch很可能在上一轮/上上一轮...迭代时已经加载好了。
+# 坏处是内存开销大，也加重了CPU负担（worker加载数据到RAM的进程是CPU复制的嘛）。num_workers的经验设置值是自己电脑/服务器的CPU核心数，如果CPU很强、RAM也很充足，就可以设置得更大些。
+# 如果num_worker设为0，意味着每一轮迭代时，dataloader不再有自主加载数据到RAM这一步骤（因为没有worker了），而是在RAM中找batch，找不到时再加载相应的batch。缺点当然是速度更慢。
+
+classes = ('plane', 'car', 'bird', 'cat',
+           'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
+
+# 定义一个卷积神经网络
+class Net(nn.Module):
+    
+    def __init__(self):
+        super(Net, self).__init__()
+        self.conv1 = nn.Conv2d(3, 6, 5)
+        self.pool = nn.MaxPool2d(2, 2)
+        self.conv2 = nn.Conv2d(6, 16, 5)
+        self.fc1 = nn.Linear(16 * 5 * 5, 120)
+        self.fc2 = nn.Linear(120, 84)
+        self.fc3 = nn.Linear(84, 10)
+# 前向传播函数
+    def forward(self, x):
+        x = self.pool(F.relu(self.conv1(x)))
+        x = self.pool(F.relu(self.conv2(x)))
+        x = x.view(-1, 16 * 5 * 5)
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        x = self.fc3(x)
+        return x
+    
+    
+net = Net()
+
+#定义一个损失函数和优化器 让我们使用分类交叉熵Cross-Entropy 作损失函数，动量SGD做优化器。
+# 损失函数
+criterion = nn.CrossEntropyLoss()
+# 优化器——更新神经网络参数（SGD）
+optimizer = optim.SGD(net.parameters(), lr=0.001, momentum=0.9)
+
+
+# 训练模型
+for epoch in range(2):  # loop over the dataset multiple times
+
+    running_loss = 0.0
+    for i, data in enumerate(trainloader, 0):
+        # get the inputs; data is a list of [inputs, labels]
+        inputs, labels = data
+
+        # zero the parameter gradients
+        # 把所有参数梯度缓存器置零，用随机的梯度来反向传播
+        optimizer.zero_grad()
+
+        # forward + backward + optimize
+        outputs = net(inputs)
+        loss = criterion(outputs, labels)
+        loss.backward()
+        optimizer.step()
+
+        # print statistics
+        running_loss += loss.item()
+        if i % 2000 == 1999:    # print every 2000 mini-batches
+            print('[%d, %5d] loss: %.3f' %
+                  (epoch + 1, i + 1, running_loss / 2000))
+            running_loss = 0.0
+
+print('Finished Training')
+PATH = './cifar_net.pth'
+torch.save(net.state_dict(), PATH)
+
+
+
+
